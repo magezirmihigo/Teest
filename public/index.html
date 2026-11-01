@@ -1,0 +1,260 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>EFOOTBALL ARENA — Live Testing Console</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="/socket.io/socket.io.js"></script>
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <style>
+    body { background-color: #0b0f19; color: #f3f4f6; font-family: sans-serif; }
+    .glow-box { border: 1px solid rgba(6, 182, 212, 0.3); box-shadow: 0 0 15px rgba(6, 182, 212, 0.15); }
+  </style>
+</head>
+<body class="p-6">
+
+  <header class="flex justify-between items-center mb-8 border-b border-gray-800 pb-4">
+    <div>
+      <h1 class="text-3xl font-extrabold text-cyan-400 tracking-wider">EFOOTBALL ARENA</h1>
+      <p class="text-xs text-gray-400">Real-Time Automated Competition Engine</p>
+    </div>
+    <div id="statusBadge" class="bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 text-xs px-3 py-1 rounded-full flex items-center gap-2">
+      <span class="w-2 h-2 rounded-full bg-emerald-400 animate-pulse"></span> Engine Online
+    </div>
+  </header>
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    
+    <!-- LEFT COLUMN: TOURNAMENT CREATOR & ENGINE LOGS -->
+    <div class="space-y-6">
+      <div class="bg-gray-900 p-5 rounded-xl glow-box">
+        <h2 class="text-lg font-bold text-white mb-4 flex items-center gap-2"><i class="fa-solid fa-trophy text-cyan-400"></i> Create Test Tournament</h2>
+        <form id="createForm" class="space-y-4">
+          <div>
+            <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Cup Name</label>
+            <input type="text" id="trnTitle" value="Dar es Salaam Mobile Cup" class="w-full bg-gray-800 border border-gray-700 rounded p-2 text-sm text-white focus:outline-none focus:border-cyan-400">
+          </div>
+          <div class="grid grid-cols-2 gap-3">
+            <div>
+              <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Platform</label>
+              <select id="trnPlatform" class="w-full bg-gray-800 border border-gray-700 rounded p-2 text-sm text-white">
+                <option value="Mobile">Mobile (Android/iOS)</option>
+                <option value="PlayStation">PlayStation (PS4/PS5)</option>
+                <option value="PC">PC</option>
+              </select>
+            </div>
+            <div>
+              <label class="block text-xs font-semibold text-gray-400 uppercase mb-1">Slots</label>
+              <select id="trnSlots" class="w-full bg-gray-800 border border-gray-700 rounded p-2 text-sm text-white">
+                <option value="4">4 Players</option>
+                <option value="8">8 Players</option>
+              </select>
+            </div>
+          </div>
+          <button type="submit" class="w-full bg-cyan-500 hover:bg-cyan-400 text-black font-bold p-2.5 rounded text-sm transition">Launch Tournament</button>
+        </form>
+      </div>
+
+      <!-- Real-Time Background Worker Logs -->
+      <div class="bg-gray-900 p-5 rounded-xl border border-gray-800">
+        <h3 class="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+          <i class="fa-solid fa-microchip text-emerald-400"></i> Automation Engine Stream
+        </h3>
+        <div id="logStream" class="h-64 overflow-y-auto space-y-2 text-xs font-mono bg-black/40 p-3 rounded border border-gray-800/80">
+          <div class="text-gray-500">Awaiting system triggers...</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- MIDDLE COLUMN: LIVE BRACKET & MATCH ROOM -->
+    <div class="lg:col-span-2 space-y-6">
+      
+      <!-- Active Tournament View -->
+      <div class="bg-gray-900 p-5 rounded-xl border border-gray-800">
+        <h2 class="text-lg font-bold text-white mb-4 flex items-center justify-between">
+          <span><i class="fa-solid fa-sitemap text-cyan-400 mr-2"></i> Live Bracket & Matches</span>
+          <span id="activeTrnTitle" class="text-xs font-normal text-cyan-400 bg-cyan-950 px-2 py-1 rounded border border-cyan-800">No active tournament</span>
+        </h2>
+
+        <div id="bracketContainer" class="space-y-4">
+          <p class="text-sm text-gray-500 text-center py-8">Create a tournament on the left to test live room code sharing and match verification.</p>
+        </div>
+      </div>
+
+      <!-- Admin Dispute Monitor -->
+      <div class="bg-gray-900 p-5 rounded-xl border border-rose-950">
+        <h3 class="text-sm font-bold text-rose-400 uppercase tracking-wider mb-3 flex items-center gap-2">
+          <i class="fa-solid fa-triangle-exclamation"></i> Dispute Resolution Monitor
+        </h3>
+        <div id="disputeContainer" class="space-y-3">
+          <p class="text-xs text-gray-500">No active disputes reported.</p>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <script>
+    const socket = io();
+    let currentState = null;
+
+    socket.on('connect', () => console.log('Connected to server websocket'));
+    socket.on('state_updated', renderState);
+    socket.on('log_updated', appendLog);
+
+    fetch('/api/state').then(r => r.json()).then(renderState);
+
+    document.getElementById('createForm').onsubmit = async (e) => {
+      e.preventDefault();
+      const body = {
+        title: document.getElementById('trnTitle').value,
+        platform: document.getElementById('trnPlatform').value,
+        slots: document.getElementById('trnSlots').value,
+        entryFee: 'Free'
+      };
+      await fetch('/api/tournaments', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify(body)
+      });
+    };
+
+    function renderState(state) {
+      currentState = state;
+      const trn = state.tournaments[0];
+      const bracketDiv = document.getElementById('bracketContainer');
+
+      if (!trn) {
+        bracketDiv.innerHTML = '<p class="text-sm text-gray-500 text-center py-8">No active tournament running.</p>';
+        return;
+      }
+
+      document.getElementById('activeTrnTitle').innerText = `${trn.title} (${trn.platform})`;
+      bracketDiv.innerHTML = '';
+
+      trn.matches.forEach(m => {
+        const div = document.createElement('div');
+        div.className = "bg-gray-950 border border-gray-800 rounded-lg p-4 space-y-3";
+
+        let statusColor = m.status === 'CONFIRMED' ? 'text-emerald-400' : m.status === 'DISPUTED' ? 'text-rose-400' : 'text-amber-400';
+
+        div.innerHTML = `
+          <div class="flex justify-between items-center text-xs">
+            <span class="font-bold text-gray-400">${m.round} (Match #${m.id})</span>
+            <span class="${statusColor} font-semibold">${m.status}</span>
+          </div>
+
+          <div class="grid grid-cols-2 gap-4 items-center bg-gray-900/60 p-3 rounded">
+            <div class="text-center">
+              <div class="text-sm font-bold text-white">${m.playerA.name}</div>
+              <div class="text-xs text-gray-500">${m.playerA.gameId || ''}</div>
+              <div class="text-lg font-extrabold text-cyan-400 mt-1">${m.scoreA !== null ? m.scoreA : '-'}</div>
+            </div>
+            <div class="text-center">
+              <div class="text-sm font-bold text-white">${m.playerB.name}</div>
+              <div class="text-xs text-gray-500">${m.playerB.gameId || ''}</div>
+              <div class="text-lg font-extrabold text-cyan-400 mt-1">${m.scoreB !== null ? m.scoreB : '-'}</div>
+            </div>
+          </div>
+
+          ${m.status === 'AWAITING_CODE' ? `
+            <div class="flex gap-2">
+              <input type="text" id="code_${m.id}" placeholder="Enter eFootball Room Code" class="flex-1 bg-gray-800 border border-gray-700 text-xs text-white p-2 rounded">
+              <button onclick="submitRoomCode('${trn.id}', '${m.id}')" class="bg-cyan-500 text-black font-bold px-3 py-1 text-xs rounded">Broadcast Code</button>
+            </div>
+          ` : ''}
+
+          ${m.status === 'IN_PROGRESS' ? `
+            <div class="bg-cyan-950/40 border border-cyan-800/50 p-2 rounded text-xs text-cyan-300 flex justify-between items-center mb-2">
+              <span>Room Code: <strong>${m.roomCode}</strong></span>
+              <span class="text-gray-400">Join match inside eFootball</span>
+            </div>
+            <div class="grid grid-cols-2 gap-2">
+              <button onclick="simulateScoreSubmit('${trn.id}', '${m.id}', '${m.playerA.id}', 3, 1)" class="bg-emerald-600/30 border border-emerald-500/30 text-emerald-300 p-2 text-xs rounded hover:bg-emerald-600/50">
+                Submit 3-1 (${m.playerA.name})
+              </button>
+              <button onclick="simulateScoreSubmit('${trn.id}', '${m.id}', '${m.playerB.id}', 3, 1)" class="bg-emerald-600/30 border border-emerald-500/30 text-emerald-300 p-2 text-xs rounded hover:bg-emerald-600/50">
+                Confirm 3-1 (${m.playerB.name})
+              </button>
+            </div>
+            <div class="mt-1 text-center">
+              <button onclick="simulateScoreSubmit('${trn.id}', '${m.id}', '${m.playerB.id}', 2, 2)" class="text-xs text-rose-400 underline">
+                Simulate Dispute (Player B submits 2-2)
+              </button>
+            </div>
+          ` : ''}
+        `;
+        bracketDiv.appendChild(div);
+      });
+
+      renderDisputes(state.disputes);
+    }
+
+    async function submitRoomCode(trnId, matchId) {
+      const code = document.getElementById(`code_${matchId}`).value;
+      if (!code) return alert('Enter a room code');
+      await fetch('/api/matches/room-code', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ tournamentId: trnId, matchId, roomCode: code })
+      });
+    }
+
+    async function simulateScoreSubmit(trnId, matchId, playerId, scoreA, scoreB) {
+      await fetch('/api/matches/submit-score', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ tournamentId: trnId, matchId, playerId, scoreA, scoreB })
+      });
+    }
+
+    function renderDisputes(disputes) {
+      const container = document.getElementById('disputeContainer');
+      const active = disputes.filter(d => d.status === 'OPEN');
+
+      if (active.length === 0) {
+        container.innerHTML = '<p class="text-xs text-gray-500">No active disputes reported.</p>';
+        return;
+      }
+
+      container.innerHTML = '';
+      active.forEach(d => {
+        const div = document.createElement('div');
+        div.className = "bg-rose-950/30 border border-rose-800 p-3 rounded text-xs space-y-2";
+        div.innerHTML = `
+          <div class="flex justify-between font-bold text-rose-300">
+            <span>Dispute #${d.id} (Match ${d.matchId})</span>
+            <span>Conflict Detected</span>
+          </div>
+          <div class="text-gray-300">
+            Player A reported: <strong>${d.subA.scoreA} - ${d.subA.scoreB}</strong><br>
+            Player B reported: <strong>${d.subB.scoreA} - ${d.subB.scoreB}</strong>
+          </div>
+          <div class="flex gap-2 pt-1">
+            <button onclick="resolveDispute('${d.id}', '${d.playerA.id}', ${d.subA.scoreA}, ${d.subA.scoreB})" class="bg-emerald-600 text-white px-2 py-1 rounded font-bold">Rule in favor of ${d.playerA.name}</button>
+            <button onclick="resolveDispute('${d.id}', '${d.playerB.id}', ${d.subB.scoreA}, ${d.subB.scoreB})" class="bg-emerald-600 text-white px-2 py-1 rounded font-bold">Rule in favor of ${d.playerB.name}</button>
+          </div>
+        `;
+        container.appendChild(div);
+      });
+    }
+
+    async function resolveDispute(disputeId, winnerId, scoreA, scoreB) {
+      await fetch('/api/admin/resolve-dispute', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ disputeId, winnerId, scoreA, scoreB })
+      });
+    }
+
+    function appendLog(log) {
+      const stream = document.getElementById('logStream');
+      const div = document.createElement('div');
+      div.className = "border-b border-gray-800/50 pb-1";
+      div.innerHTML = `<span class="text-gray-500">[${log.time}]</span> <span class="text-cyan-400 font-bold">[${log.engine}]</span> ${log.message}`;
+      stream.prepend(div);
+    }
+  </script>
+</body>
+</html>
